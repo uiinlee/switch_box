@@ -32,13 +32,13 @@ return percentage;
 }
 
 
-// USER ID & PW
+// USER ID & PW 기입해야함
 String USER_ID = "uiin111";
 String USER_PW = "uiin111";
 
-// Wifi ID & PW
-String WIFI_SSID = "aomr";
-String WIFI_PW = "aomr0104";
+// Wifi ID & PW 기입해야함
+String WIFI_SSID = "";
+String WIFI_PW = "";
 
 // 출력핀(OutputPin)
 const int num2 = 2; //DC모터1
@@ -63,7 +63,7 @@ int val33 = 0;
 int val32 = 0;
 int val34 = 0;
 
-// 서버주소
+// 서버주소 기입해야함
 //const String server = "";
 const String server = "";
 
