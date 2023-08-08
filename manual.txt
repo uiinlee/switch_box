@@ -1,0 +1,9 @@
+1. 등록 (등록 되어 있으면 패스) /register ID, password(If you already registered, you can pass)
+2. 동록한 아이디로 로그인 /log in with your ID, password
+3. 작성된 메모장을 [데이터 보내기] 버튼을 통해 서버로 보내기 / use the [Send Data] button to transmit the written data to the server
+4. 아두이노 실행(아두이노 코드에 사용자 ID, PW 및 와이파이 정보 일치시키기) / execute Arduino (match user ID, PW, and Wi-Fi information in the Arduino code).
+5. 메모장에 지정된 시간이 지나면 서버에 아날로그 값 저장 / when the specified time on the notepad elapses, store the analog value on the server
+6. [데이터 받기] 버튼 클릭 / Click the [Receive Data] button
+위에 순서에 잘 맞추어 실행하기 / you must follow this order.
+115200은 LOLIN D32 보드 설정값 시리얼 모니터에서 바꿔주기
+현재 PCB판에 오류가 있음. GND가 모두 제대로 연결이 되어있지 않으므로 연결을 모두 해줘야 하며, 다이오드의 연결이 올바르지 않음. 그러므로 PCB판에 대한 설계를 수정해야함.
