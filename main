@@ -1,0 +1,874 @@
+// HTTPClient POST : https://answerofgod.tistory.com/803?category=623086
+// HTTPClient POST + JSON : https://www.hardcopyworld.com/?p=3287
+// JSON 상세자료 : https://m.blog.naver.com/damtaja/221421202457
+// DHT 참고자료: https://artsung410.tistory.com/47 , https://kocoafab.cc/tutorial/view/379
+// LOLIN D32 Sch : https://forum.hobbycomponents.com/viewtopic.php?t=2462
+// IRFZ44VZ Datasheet : https://pdf1.alldatasheet.co.kr/datasheet-pdf/view/1009976/ISC/IRFZ44VZ.html
+// ESP32 timer interrupt : https://answerofgod.tistory.com/entry/ESP32-%ED%83%80%EC%9D%B4%EB%A8%B8-%EC%9D%B8%ED%84%B0%EB%9F%BD%ED%8A%B8
+// 토양수분센서 참고자료 : https://m.blog.naver.com/eduino/220932193318
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <Wire.h>
+//#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+
+#define DHTPIN 14
+#define DHTTYPE DHT11
+
+DHT dht(DHTPIN,DHTTYPE);
+
+//LiquidCrystal_I2C lcd(0x27,16,2);
+
+float voltageToPercentage(float voltage) {
+// 배터리 잔량을 전압값으로 변환하는 함수
+// 전압값이 3.3V일 때 배터리 잔량이 100%가 되도록 적절히 스케일링
+float percentage = map(voltage, 0, 3300, 0, 100);
+if (percentage > 100) {
+percentage = 100;
+}
+return percentage;
+}
+
+
+// USER ID & PW
+String USER_ID = "uiin111";
+String USER_PW = "uiin111";
+
+// Wifi ID & PW
+String WIFI_SSID = "aomr";
+String WIFI_PW = "aomr0104";
+
+// 출력핀(OutputPin)
+const int num2 = 2; //DC모터1
+const int num0 = 0; //DC모터2
+const int num4 = 4; //DC모터3
+const int num16 = 16;
+const int num17 = 17;
+const int num5 = 5;
+
+// 입력핀(InputPin)
+const int num12 = 12;  
+const int num14 = 14;  //온습도
+const int num27 = 27;  //배터리 잔량
+const int num33 = 33;  //토양수분
+const int num32 = 32;
+const int num34 = 34;
+
+int val12 = 0;
+int val14 = 0;
+int val27 = 0;
+int val33 = 0;
+int val32 = 0;
+int val34 = 0;
+
+// 서버주소
+//const String server = "";
+const String server = "";
+
+//const String server_analog_read = "";
+const String server_analog_read = "";
+
+// loop 실행횟수
+int ref_val = 0;
+
+// Table
+String date_table[11];
+String pin_table[11][13];
+int table_ref = 0;
+
+// real-time
+int real_time = 0;
+
+// Interrupt
+volatile int interruptCounter = 0;
+hw_timer_t * timer = NULL;
+
+// Interrupt 호출 함수
+void IRAM_ATTR onTimer() {
+  interruptCounter++;
+}
+
+void setup() {
+  // Serial 연결, 115200은 LOLIN D32 보드 설정값
+  Serial.begin(115200);
+  Serial.println("wifi test");
+
+  // USER ID&PW, WIFI ID&PW
+  //serialUpload();
+  //delay(100);
+
+  // Wifi 연결 (Wifi ID & PW 사용)
+  connectWifi();
+  delay(100);
+
+  // API 연결 (Server 사용), POST body 정의
+  String bodyStr_first;
+  bodyStr_first = "ID=";
+  bodyStr_first += USER_ID;
+  bodyStr_first += ";PW=";
+  bodyStr_first += USER_PW;
+  bodyStr_first += ";POWER=";
+  bodyStr_first += "ON";
+  bodyStr_first += ";State=";
+  bodyStr_first += "start";
+  bodyStr_first += ";VAL33=";
+  String val33s = String(val33);
+  bodyStr_first += val33s;
+  bodyStr_first += ";table_ref=";
+  String table_refs = String(table_ref);
+  bodyStr_first += table_refs;
+  
+  openAPI(bodyStr_first);
+  delay(100);
+
+  // Interrupt 초기화 (타이머 주파수가 기본적으로 80Mhz임)
+  timer = timerBegin(0, 80, true);
+  timerAttachInterrupt(timer, &onTimer, true);
+  timerAlarmWrite(timer, 1000000, true);
+  timerAlarmEnable(timer);
+  delay(100);
+  
+  // 현재 시간을 기준으로 table_ref 시작값 설정
+  int real_time_now;
+  real_time_now = real_time + interruptCounter;
+  
+  for (int i = 0; i < 10; i++) {
+    int date_table_val = date_table[i].toInt();
+    if (date_table_val > real_time_now) {
+      table_ref = i;
+      Serial.print("table_ref 시작값 : ");
+      String table_refs = String(table_ref);
+      Serial.println(table_refs);
+      break;
+    }
+  }
+  //myServo.attach(2); //setup() 함수에서 myServo.attach() 함수를 호출하여 핀 2번에 서보모터를 연결합니다
+
+  // 핀 2번을 PWM 출력 핀으로 설정frt
+  pinMode(2, OUTPUT); // 출력핀의 pinMode를 OUTPUT으로 해야 정상적으로 3.3V를 출력함
+  pinMode(num0, OUTPUT); 
+  pinMode(num4, OUTPUT);
+  pinMode(num16, OUTPUT);
+  pinMode(num17, OUTPUT);
+  pinMode(num5, OUTPUT);
+
+  // 입력핀의 pinMode를 INPUT으로 설정
+  pinMode(num12, INPUT);
+  pinMode(num14, INPUT);
+  pinMode(num27, INPUT);
+  pinMode(num33, INPUT);
+  pinMode(num32, INPUT);
+  pinMode(num34, INPUT);
+
+  // lcd 시작
+  /*lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("LOLIN Start");
+  lcd.setCursor(0,1);
+  lcd.print("loading...");  
+  delay(1000);*/
+}
+
+void loop() {  
+  String ref_str = String(ref_val);
+  
+  /*lcd.setCursor(0,0);
+  lcd.print("ref: ");
+  lcd.print(ref_str);
+  lcd.print("     ");
+  lcd.setCursor(0,1);
+  lcd.print("and ...");
+  lcd.print("     ");*/
+
+  ref_val++;
+
+  // 센서 입력값 측정
+  float humidity =dht.readHumidity();
+  float temperature =dht.readTemperature();
+
+  val12 = analogRead(num12);
+  val27 = analogRead(num27);
+  val33 = analogRead(num33);
+  val32 = analogRead(num32);
+  val34 = analogRead(num34);
+  
+  float batteryVoltage = val27 * (5.0 / 4095.0) * 2; // 27번 핀에 연결된 배터리 전압 읽기
+  float batteryPercentage = voltageToPercentage(batteryVoltage); // 배터리 잔량으로 변환
+  float soilMoisture = map(val33, 0, 4095, 0, 100); // 33번 핀에 연결된 토양수분센서 값을 0~100%로 변환
+
+  Serial.print("val: ");
+  Serial.print(val12);
+  Serial.print(", ");
+  Serial.print(val14);
+  Serial.print(", ");
+  Serial.print(val27);
+  Serial.print(", ");
+  Serial.print(val33);
+  Serial.print(", ");
+  Serial.print(val32);
+  Serial.print(", ");
+  Serial.println(val34);
+
+  Serial.print("Temperature: ");
+  Serial.print(temperature);
+  Serial.print(" °C");
+  Serial.print(" Humidity: ");
+  Serial.print(humidity);
+  /*Serial.print("Soil Moisture: ");
+  Serial.print(soilMoisture);*/
+
+  Serial.print(" Battery Voltage: ");
+  Serial.print(batteryVoltage);
+  Serial.print(" mV");
+  Serial.print(" Battery Percentage: ");
+  Serial.print(batteryPercentage);
+  Serial.println(" %");
+
+  // real time 계산
+  String real_times = String(real_time);
+  Serial.print("real time: ");
+  Serial.println(real_times);
+  
+  String interruptCounters = String(interruptCounter);
+  Serial.print("interruptCounter: ");
+  Serial.println(interruptCounters);
+
+  int real_time_now;
+  real_time_now = real_time + interruptCounter;
+  String real_time_nows = String(real_time_now);
+  Serial.print("real_time_now: ");
+  Serial.println(real_time_nows);
+
+  int date_table_val = date_table[table_ref].toInt();
+  if (real_time_now >= date_table_val) {
+    // 조건문 탐색
+    bool condition_ref = false;
+    for (int i = 0; i < 6; i++) {
+      if (pin_table[table_ref][i].indexOf("(") > -1) {
+        condition_ref = true;
+        break;
+      }
+    }
+    if (condition_ref == true) {
+      String bodyStr_condition;
+      bodyStr_condition = "ID=";
+      bodyStr_condition += USER_ID;
+      bodyStr_condition += ";PW=";
+      bodyStr_condition += USER_PW;
+      bodyStr_condition += ";POWER=";
+      bodyStr_condition += "ON";
+      bodyStr_condition += ";State=";
+      bodyStr_condition += "condition";
+
+      bodyStr_condition += ";VAL12=";
+      String val12s = String(val12);
+      bodyStr_condition += val12s;
+      bodyStr_condition += ";VAL14=";
+      String val14s = String(val14);
+      bodyStr_condition += val14s;
+      bodyStr_condition += ";VAL27=";
+      String val27s = String(val27);
+      bodyStr_condition += val27s;
+      bodyStr_condition += ";VAL33=";
+      String val33s = String(val33);
+      bodyStr_condition += val33s;
+      bodyStr_condition += ";VAL32=";
+      String val32s = String(val32);
+      bodyStr_condition += val32s;
+      bodyStr_condition += ";VAL34=";
+      String val34s = String(val34);
+      bodyStr_condition += val34s;
+      
+      // 출력핀 2가 3시에 켜지도록 조건 추가
+      /*if (real_time_now == 10800 && pin_table[table_ref][1] == "0") {
+        bodyStr_condition += ";PIN2=1";
+        pin_table[table_ref][1] = "1"; // 상태 업데이트
+        Serial.println("PIN2 ON");
+      }*/
+      
+      bodyStr_condition += ";table_ref=";
+      String table_refs = String(table_ref);
+      bodyStr_condition += table_refs;
+      
+      openAPI(bodyStr_condition);
+      delay(100);
+    }
+
+    //------------------------------
+
+    // 0 = pin2
+    if (pin_table[table_ref][0] == "1") {
+      digitalWrite(num2, HIGH);
+      Serial.println("num2 on");
+    }
+    else if (pin_table[table_ref][0] == "0") {
+      digitalWrite(num2, LOW);
+      Serial.println("num2 off");
+    }
+    else {
+      Serial.println("num2 ---");
+    }
+
+    // 1 = pin0
+    if (pin_table[table_ref][1] == "1") {
+      digitalWrite(num0, HIGH);
+      Serial.println("num0 on");
+    }
+    else if (pin_table[table_ref][1] == "0") {
+      digitalWrite(num0, LOW);
+      Serial.println("num0 off");
+    }
+    else {
+      Serial.println("num0 ---");
+    }
+
+    // 2 = pin4
+    if (pin_table[table_ref][2] == "1") {
+      digitalWrite(num4, HIGH);
+      Serial.println("num4 on");
+    }
+    else if (pin_table[table_ref][2] == "0") {
+      digitalWrite(num4, LOW);
+      Serial.println("num4 off");
+    }
+    else {
+      Serial.println("num4 ---");
+    }
+
+    // 3 = pin16
+    if (pin_table[table_ref][3] == "1") {
+      digitalWrite(num16, HIGH);
+      Serial.println("num16 on");
+    }
+    else if (pin_table[table_ref][3] == "0") {
+      digitalWrite(num16, LOW);
+      Serial.println("num16 off");
+    }
+    else {
+      Serial.println("num16 ---");
+    }
+
+    // 4 = pin17
+    if (pin_table[table_ref][4] == "1") {
+      digitalWrite(num17, HIGH);
+      Serial.println("num17 on");
+    }
+    else if (pin_table[table_ref][4] == "0") {
+      digitalWrite(num17, LOW);
+      Serial.println("num17 off");
+    }
+    else {
+      Serial.println("num17 ---");
+    }
+
+    // 5 = pin5
+    if (pin_table[table_ref][5] == "1") {
+      digitalWrite(num5, HIGH);
+      Serial.println("num5 on");
+    }
+    else if (pin_table[table_ref][5] == "0") {
+      digitalWrite(num5, LOW);
+      Serial.println("num5 off");
+    }
+    else {
+      Serial.println("num5 ---");
+    }
+
+    //------------------------------
+
+    // 6 = pin12
+    if (pin_table[table_ref][6] == "1") {
+      Serial.println("num12 on");
+      // http를 server(주소)에 연결
+      HTTPClient http;
+      http.begin(server_analog_read);
+      http.addHeader("authorization", "nm00213");
+      
+      // POST method 통신
+      String bodyStr;
+      bodyStr = "ID=";
+      bodyStr += USER_ID;
+      bodyStr += ";PW=";
+      bodyStr += USER_PW;
+      bodyStr += ";POWER=";
+      bodyStr += "ON";
+      bodyStr += ";Humidity=";
+      bodyStr += humidity,"%";
+      bodyStr += ";Temperature=";
+      bodyStr += temperature,"C";
+      bodyStr += ";VAL12=";
+      String val12s = String(val12);
+      bodyStr += val12s;
+      
+      int httpCode = http.POST(bodyStr);
+      String resStr = http.getString();
+      http.end();
+      Serial.print("httpCode=");
+      Serial.println(httpCode);
+      Serial.print("resStr=");
+      Serial.println(resStr);
+    }
+    else if (pin_table[table_ref][6] == "0") {
+      Serial.println("num12 ---");
+    }
+    else {
+      Serial.println("num12 ---");
+    }
+
+    // 7 = pin14
+    if (pin_table[table_ref][7] == "1") {
+      Serial.println("num14 on");
+      // http를 server(주소)에 연결
+      HTTPClient http;
+      http.begin(server_analog_read);
+      http.addHeader("authorization", "nm00213");
+      
+      // POST method 통신
+      String bodyStr;
+      bodyStr = "ID=";
+      bodyStr += USER_ID;
+      bodyStr += ";PW=";
+      bodyStr += USER_PW;
+      bodyStr += ";POWER=";
+      bodyStr += "ON";
+      bodyStr += ";Humidity=";
+      bodyStr += humidity,"%";
+      bodyStr += ";Temperature=";
+      bodyStr += temperature,"C";
+      bodyStr += ";VAL14=";
+      String val14s = String(val14);
+      bodyStr += val14s;
+      
+      int httpCode = http.POST(bodyStr);
+      String resStr = http.getString();
+      http.end();
+      Serial.print("httpCode=");
+      Serial.println(httpCode);
+      Serial.print("resStr=");
+      Serial.println(resStr);
+    }
+    else if (pin_table[table_ref][7] == "0") {
+      Serial.println("num14 ---");
+    }
+    else {
+      Serial.println("num14 ---");
+    }
+
+    // 8 = pin27
+    if (pin_table[table_ref][8] == "1") {
+      Serial.println("num27 on");
+      // http를 server(주소)에 연결
+      HTTPClient http;
+      http.begin(server_analog_read);
+      http.addHeader("authorization", "nm00213");
+      
+      // POST method 통신
+      String bodyStr;
+      bodyStr = "ID=";
+      bodyStr += USER_ID;
+      bodyStr += ";PW=";
+      bodyStr += USER_PW;
+      bodyStr += ";POWER=";
+      bodyStr += "ON";
+      bodyStr += ";Humidity=";
+      bodyStr += humidity,"%";
+      bodyStr += ";Temperature=";
+      bodyStr += temperature,"C";
+      bodyStr += ";VAL27=";
+      String val27s = String(val27);
+      bodyStr += val27s;
+      
+      int httpCode = http.POST(bodyStr);
+      String resStr = http.getString();
+      http.end();
+      Serial.print("httpCode=");
+      Serial.println(httpCode);
+      Serial.print("resStr=");
+      Serial.println(resStr);
+    }
+    else if (pin_table[table_ref][8] == "0") {
+      Serial.println("num27 ---");
+    }
+    else {
+      Serial.println("num27 ---");
+    }
+
+    // 9 = pin33
+    if (pin_table[table_ref][9] == "1") {
+      Serial.println("num33 on");
+      // http를 server(주소)에 연결
+      HTTPClient http;
+      http.begin(server_analog_read);
+      http.addHeader("authorization", "nm00213");
+      
+      // POST method 통신
+      String bodyStr;
+      bodyStr = "ID=";
+      bodyStr += USER_ID;
+      bodyStr += ";PW=";
+      bodyStr += USER_PW;
+      bodyStr += ";POWER=";
+      bodyStr += "ON";
+      bodyStr += ";Humidity=";
+      bodyStr += humidity,"%";
+      bodyStr += ";Temperature=";
+      bodyStr += temperature,"C";
+      bodyStr += ";VAL33=";
+      String val33s = String(val33);
+      bodyStr += val33s;
+      
+      int httpCode = http.POST(bodyStr);
+      String resStr = http.getString();
+      http.end();
+      Serial.print("httpCode=");
+      Serial.println(httpCode);
+      Serial.print("resStr=");
+      Serial.println(resStr);
+    }
+    else if (pin_table[table_ref][9] == "0") {
+      Serial.println("num33 ---");
+    }
+    else {
+      Serial.println("num33 ---");
+    }
+
+    // 10 = pin32
+    if (pin_table[table_ref][10] == "1") {
+      Serial.println("num32 on");
+      // http를 server(주소)에 연결
+      HTTPClient http;
+      http.begin(server_analog_read);
+      http.addHeader("authorization", "nm00213");
+      
+      // POST method 통신
+      String bodyStr;
+      bodyStr = "ID=";
+      bodyStr += USER_ID;
+      bodyStr += ";PW=";
+      bodyStr += USER_PW;
+      bodyStr += ";POWER=";
+      bodyStr += "ON";
+      bodyStr += ";Humidity=";
+      bodyStr += humidity,"%";
+      bodyStr += ";Temperature=";
+      bodyStr += temperature,"C";
+      bodyStr += ";VAL32=";
+      String val32s = String(val32);
+      bodyStr += val32s;
+      
+      int httpCode = http.POST(bodyStr);
+      String resStr = http.getString();
+      http.end();
+      Serial.print("httpCode=");
+      Serial.println(httpCode);
+      Serial.print("resStr=");
+      Serial.println(resStr);
+    }
+    else if (pin_table[table_ref][10] == "0") {
+      Serial.println("num32 ---");
+    }
+    else {
+      Serial.println("num32 ---");
+    }
+
+    // 11 = pin34
+    if (pin_table[table_ref][11] == "1") {
+      Serial.println("num34 on");
+      // http를 server(주소)에 연결
+      HTTPClient http;
+      http.begin(server_analog_read);
+      http.addHeader("authorization", "nm00213");
+      
+      // POST method 통신
+      String bodyStr;
+      bodyStr = "ID=";
+      bodyStr += USER_ID;
+      bodyStr += ";PW=";
+      bodyStr += USER_PW;
+      bodyStr += ";POWER=";
+      bodyStr += "ON";
+      bodyStr += ";Humidity=";
+      bodyStr += humidity,"%";
+      bodyStr += ";Temperature=";
+      bodyStr += temperature,"C";
+      bodyStr += ";VAL34=";
+      String val34s = String(val34);
+      bodyStr += val34s;
+      
+      int httpCode = http.POST(bodyStr);
+      String resStr = http.getString();
+      http.end();
+      Serial.print("httpCode=");
+      Serial.println(httpCode);
+      Serial.print("resStr=");
+      Serial.println(resStr);
+    }
+    else if (pin_table[table_ref][11] == "0") {
+      Serial.println("num34 ---");
+    }
+    else {
+      Serial.println("num34 ---");
+    }
+    
+    table_ref++;
+    if (table_ref >= 10) {
+      table_ref = 10;
+    }
+  }
+  String table_refs = String(table_ref);
+  Serial.print("table_ref: ");
+  Serial.println(table_refs);
+
+  // 00:00:00가 되면 변수 초기화 진행
+  if (real_time_now >= 864000) {
+    real_time = 0;
+    interruptCounter = 0;
+    table_ref = 0;
+  }
+
+  // 전체 loop 딜레이
+  delay(1000);
+  Serial.println("---------------");
+}
+
+// USER ID&PW, WIFI ID&PW
+//void serialUpload() {
+//  while(1){
+//    if(Serial.available()){
+//      String str = Serial.readStringUntil('\n');
+//      int id_pw_case_ref = 0;    
+//      while(str.indexOf("/*sep*/") > -1){
+//        int id_pw_end_ref = str.indexOf("/*sep*/");      
+//        if(id_pw_case_ref == 0){
+//          USER_ID = str.substring(0, id_pw_end_ref);
+//          str = str.substring(id_pw_end_ref + 7, str.length());
+//          id_pw_case_ref += 1;
+//        }
+//        else if(id_pw_case_ref == 1){
+//          USER_PW = str.substring(0, id_pw_end_ref);
+//          str = str.substring(id_pw_end_ref + 7, str.length());
+//          id_pw_case_ref += 1;
+//        }
+//        else if(id_pw_case_ref == 2){
+//          WIFI_SSID = str.substring(0, id_pw_end_ref);
+//          str = str.substring(id_pw_end_ref + 7, str.length());
+//          id_pw_case_ref += 1;
+//        }
+//        else if(id_pw_case_ref == 3){
+//          WIFI_PW = str.substring(0, id_pw_end_ref);
+//          str = str.substring(id_pw_end_ref + 7, str.length());
+//          id_pw_case_ref += 1;
+//        }
+//      }    
+//      String print_string = "user id: " + USER_ID + ", user pw: " + USER_PW + ", wifi id: " + WIFI_SSID + ", wifi pw: " + WIFI_PW;
+//      Serial.println(print_string);    
+//      break;
+//    }
+//  }
+//}
+
+// Wifi 연결을 위한 함수 생성
+void connectWifi() {
+  const char* MY_SSID = (char*) WIFI_SSID.c_str();
+  const char* MY_PWD = (char*) WIFI_PW.c_str();
+  Serial.println("Connecting to "+*MY_SSID);
+  WiFi.begin(MY_SSID, MY_PWD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("WiFi connected with IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("");
+}
+
+// Restful API 연결
+void openAPI(String bodyStr) {
+  // http를 server(주소)에 연결
+  HTTPClient http;
+  http.begin(server);
+  http.addHeader("authorization", "nm00213");
+
+//  // POST method 통신
+//  String bodyStr;
+//  bodyStr = "ID=";
+//  bodyStr += "abc123";
+//  bodyStr += ";PW=";
+//  bodyStr += "123123";
+//  bodyStr += ";POWER=";
+//  bodyStr += "ON";
+//  bodyStr += ";VAL33=";
+//  String val33s = String(val33);
+//  bodyStr += val33s;fff
+  
+  int httpCode = http.POST(bodyStr);
+  String resStr = http.getString();
+  http.end();
+  Serial.print("httpCode=");
+  Serial.println(httpCode);
+  Serial.print("resStr=");
+  Serial.println(resStr);
+
+  // JSON 데이터 파싱
+  // StaticJsonBuffer<x> : JsonObject 트리를 저장하기 위해 x 크기의 메모리 풀(버퍼)을 미리 할당함
+  StaticJsonBuffer<2000> JSONBuffer;
+  // parseObject() : JSON 문자열(resStr)을 parsed라는 JsonObject로 디코딩(파싱)함
+  JsonObject& parsed = JSONBuffer.parseObject(resStr); //Parse message
+  // success() : 디코딩(파싱)이 성공했는지 확인함
+  if(parsed.success()) {
+    const char* real_time_val = parsed["time_ref"];
+    String real_time_vals = String(real_time_val);
+    real_time = real_time_vals.toInt();
+    Serial.print("real time: ");
+    Serial.println(real_time);
+    // real_time이 현재 시간값으로 갱신되었으므로 interruptCounter를 다시 0으로 리셋시켜야 함
+    interruptCounter = 0;
+    Serial.print("interruptCounter Reset");
+    
+    int key_ref = 0;
+    while(1) {
+      if (key_ref > 10) {
+        break;
+      }
+      String key_refs = String(key_ref);
+      
+      const char* date_val = parsed[key_refs]["date"];
+      const char* pin1_val = parsed[key_refs]["pin"]["1"];
+      const char* pin2_val = parsed[key_refs]["pin"]["2"];
+      const char* pin3_val = parsed[key_refs]["pin"]["3"];
+      const char* pin4_val = parsed[key_refs]["pin"]["4"];
+      const char* pin5_val = parsed[key_refs]["pin"]["5"];
+      const char* pin6_val = parsed[key_refs]["pin"]["6"];
+      const char* pin7_val = parsed[key_refs]["pin"]["7"];
+      const char* pin8_val = parsed[key_refs]["pin"]["8"];
+      const char* pin9_val = parsed[key_refs]["pin"]["9"];
+      const char* pin10_val = parsed[key_refs]["pin"]["10"];
+      const char* pin11_val = parsed[key_refs]["pin"]["11"];
+      const char* pin12_val = parsed[key_refs]["pin"]["12"];
+      
+      String date_vals = String(date_val);
+      String pin1_vals = String(pin1_val);
+      String pin2_vals = String(pin2_val);
+      String pin3_vals = String(pin3_val);
+      String pin4_vals = String(pin4_val);
+      String pin5_vals = String(pin5_val);
+      String pin6_vals = String(pin6_val);
+      String pin7_vals = String(pin7_val);
+      String pin8_vals = String(pin8_val);
+      String pin9_vals = String(pin9_val);
+      String pin10_vals = String(pin10_val);
+      String pin11_vals = String(pin11_val);
+      String pin12_vals = String(pin12_val);
+      
+      date_table[key_ref] = date_vals;
+      pin_table[key_ref][0] = pin1_vals;
+      pin_table[key_ref][1] = pin2_vals;
+      pin_table[key_ref][2] = pin3_vals;
+      pin_table[key_ref][3] = pin4_vals;
+      pin_table[key_ref][4] = pin5_vals;
+      pin_table[key_ref][5] = pin6_vals;
+      pin_table[key_ref][6] = pin7_vals;
+      pin_table[key_ref][7] = pin8_vals;
+      pin_table[key_ref][8] = pin9_vals;
+      pin_table[key_ref][9] = pin10_vals;
+      pin_table[key_ref][10] = pin11_vals;
+      pin_table[key_ref][11] = pin12_vals;
+      
+      key_ref++;
+    }
+    Serial.print("date table: ");
+    Serial.print(date_table[0]);
+    Serial.print(", ");
+    Serial.print(date_table[1]);
+    Serial.print(", ");
+    Serial.print(date_table[2]);
+    Serial.print(", ");
+    Serial.print(date_table[3]);
+    Serial.println(", ");
+
+    Serial.print("pin table: ");
+    Serial.print(pin_table[0][0]);
+    Serial.print(", ");
+    Serial.print(pin_table[0][1]);
+    Serial.print(", ");
+    Serial.print(pin_table[0][2]);
+    Serial.print(", ");
+    Serial.print(pin_table[0][3]);
+    Serial.print("/ ");
+    
+    Serial.print(pin_table[1][0]);
+    Serial.print(", ");
+    Serial.print(pin_table[1][1]);
+    Serial.print(", ");
+    Serial.print(pin_table[1][2]);
+    Serial.print(", ");
+    Serial.print(pin_table[1][3]);
+    Serial.print("/ ");
+    
+    Serial.print(pin_table[2][0]);
+    Serial.print(", ");
+    Serial.print(pin_table[2][1]);
+    Serial.print(", ");
+    Serial.print(pin_table[2][2]);    
+    Serial.print(", ");
+    Serial.print(pin_table[2][3]);    
+    Serial.print("/ ");
+    
+    Serial.print(pin_table[3][0]);
+    Serial.print(", ");
+    Serial.print(pin_table[3][1]);
+    Serial.print(", ");
+    Serial.print(pin_table[3][2]);
+    Serial.println(", ");
+    
+//    const char* power17 = parsed["0"];
+//    const char* power5 = parsed["0"]["data"];
+//    const char* power18 = parsed["0"]["pin"]["1"];
+//    Serial.print("power17: "); Serial.println(power17);
+//    Serial.print("power5: "); Serial.println(power5);
+//    Serial.print("power18: "); Serial.println(power18);
+
+//    // 파싱값은 메모리 주소로 저장되어 있으므로 문자열로 변환 후 "1"과 동등여부 판단 진행
+//    String power17s = String(power17);
+//    String power5s = String(power5);
+//    String power18s = String(power18);
+//    
+//    if(power17s == "1") {
+//      digitalWrite(num17, HIGH);
+//      Serial.println("num17 on");
+//    }
+//    else {
+//      digitalWrite(num17, LOW);
+//      Serial.println("num17 off");
+//    }
+//  
+//    if(power5s == "1") {
+//      digitalWrite(num5, HIGH);
+//      Serial.println("num5 on");
+//    }
+//    else {
+//      digitalWrite(num5, LOW);
+//      Serial.println("num5 off");
+//    }
+//  
+//    if(power18s == "1") {
+//      digitalWrite(num18, HIGH);
+//      Serial.println("num18 on");
+//    }
+//    else {
+//      digitalWrite(num18, LOW);
+//      Serial.println("num18 off");
+//    }
+  } 
+  
+  else {
+    // JSON 파싱이 실패하는 이유는 대표적으로 3가지
+    // 1. JSON 문자열 구문 에러, 2. JSON 문자열이 객체를 나타내지 않을 때, 3. StaticJsonBuffer 크기가 작을 때,
+    // JSON 파싱 실패한 경우 출력하는 메세지
+    Serial.println("JSON parsing failed !!");
+  }
+}
